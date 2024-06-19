@@ -1,0 +1,579 @@
+#include <ESP8266WiFi.h>
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include "ThingSpeak.h"
+#include "DHT.h"
+#include "GRGB.h"
+
+#define DHT22PIN D3
+#define DHTTYPE DHT22
+#define R_PIN D7
+#define G_PIN D5
+#define B_PIN D6
+#define HUMIDIFIER_PIN D1
+
+WiFiClient client;
+DHT dht(DHT22PIN, DHTTYPE);
+AsyncWebServer server(80);
+GRGB led(COMMON_CATHODE, R_PIN, G_PIN, B_PIN);
+
+const char *ssid = "***";
+const char *password = "***";
+const char *myWriteAPIKey = "***";
+uint16_t myChannelNumber = 1;
+uint32_t sendDataTimeStamp;
+uint32_t sendDataDelay = 20000;
+uint32_t ledTimeStamp;
+uint16_t ledDelay = 25;
+uint16_t i = 0;
+uint16_t numOfconnectionAttempts = 0;
+uint32_t DHT22TimeStamp;
+uint32_t DHT22Delay = 5000;
+uint32_t humidifierTimeStamp;
+uint32_t humidifierWorkingTime = 20000;
+uint32_t humidifierSleepingTime = 10000;
+uint32_t humidifierSleepTimeStamp;
+float temperature;
+float humidity;
+float humidityAcceptableLevel = 50;
+bool humidifierWorking = false;
+bool humidifierStarting;
+bool allowToSendData = true;
+bool firstSuccessRequest = true;
+bool oneTimeTriggerFlag = true;
+bool timeForHumidifierLeft = false;
+bool RGBWorking = true;
+
+void setup() {
+  WiFi.mode(WIFI_STA);
+  pinMode(R_PIN, OUTPUT);
+  pinMode(G_PIN, OUTPUT);
+  pinMode(B_PIN, OUTPUT);
+  pinMode(HUMIDIFIER_PIN, OUTPUT);
+  Serial.begin(115200);
+  dht.begin();
+  ThingSpeak.begin(client);
+  sendDataTimeStamp = sendDataDelay - 100;
+  DHT22TimeStamp = millis();
+  humidifierTimeStamp = millis();
+  connectWiFi();
+  digitalWrite(HUMIDIFIER_PIN, LOW);
+  checkTemperature();
+}
+
+void loop() {
+  if (digitalRead(HUMIDIFIER_PIN) == HIGH) {
+    if (millis() - humidifierTimeStamp > humidifierWorkingTime) {
+      digitalWrite(HUMIDIFIER_PIN, LOW);
+      timeForHumidifierLeft = true;
+      humidifierSleepTimeStamp = millis();
+    }
+  }
+
+  if (humidity < humidityAcceptableLevel) {
+    if (oneTimeTriggerFlag) {
+      humidifierStarting = true;
+      humidifierTimeStamp = millis();
+      digitalWrite(HUMIDIFIER_PIN, HIGH);
+      oneTimeTriggerFlag = false;
+    }
+
+    if ((millis() - ledTimeStamp > ledDelay) && RGBWorking) {
+      led.setWheel(i);
+      i++;
+      if (i == 1530) {
+        i = 0;
+      }
+    } else if (!RGBWorking) {
+      digitalWrite(R_PIN, LOW);
+      digitalWrite(G_PIN, LOW);
+      digitalWrite(B_PIN, LOW);
+    }
+
+    if (timeForHumidifierLeft && (millis() - humidifierSleepTimeStamp > humidifierSleepingTime)) {
+      oneTimeTriggerFlag = true;
+      timeForHumidifierLeft = false;
+    }
+
+  } else {
+    oneTimeTriggerFlag = true;
+    digitalWrite(R_PIN, LOW);
+    digitalWrite(G_PIN, LOW);
+    digitalWrite(B_PIN, LOW);
+  }
+
+  if (millis() - DHT22TimeStamp > DHT22Delay) {
+    checkTemperature();
+    DHT22TimeStamp = millis();
+  }
+  if (millis() - sendDataTimeStamp > sendDataDelay) {
+    sendData();
+    sendDataTimeStamp = millis();
+  }
+}
+
+void connectWiFi() {
+  Serial.println("Attempting to connect to WiFi");
+  if (RGBWorking) digitalWrite(R_PIN, HIGH);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED && numOfconnectionAttempts != 15) {
+    delay(500);
+    Serial.print(".");
+    numOfconnectionAttempts++;
+  }
+  numOfconnectionAttempts = 0;
+  if (WiFi.status() == WL_CONNECTED) Serial.println("Connected to WiFi");
+  else Serial.println("Failed to connect to WiFi");
+  digitalWrite(R_PIN, LOW);
+}
+
+void checkTemperature() {
+  temperature = dht.readTemperature();
+  Serial.print("Temperature (ºC): ");
+  Serial.println(temperature);
+  humidity = dht.readHumidity();
+  Serial.print("Humidity (%): ");
+  Serial.println(humidity);
+}
+
+void sendData() {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!isnan(temperature) && !isnan(humidity)) {
+      ThingSpeak.setField(1, temperature);
+      ThingSpeak.setField(2, humidity);
+      int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+      if (x == 200) {
+        Serial.println("Channel update successful.");
+        if (firstSuccessRequest) {
+          Serial.print("ESP IP Address: http://");
+          IPAddress IP = WiFi.localIP();
+          Serial.println(IP);
+          initSite();
+          firstSuccessRequest = false;
+        }
+      }
+    } else {
+      Serial.println("Error in sending data, can`t read values from sensor");
+    }
+  } else {
+    connectWiFi();
+  }
+}
+
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+
+<head>
+<meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial;
+            text-align: center;
+            margin: 0px auto;
+            padding-top: 30px;
+        }
+
+        .button {
+            padding: 10px 20px;
+            margin-bottom: 50px;
+            font-size: 24px;
+            text-align: center;
+            outline: none;
+            color: #fff;
+            background-color: #2f4468;
+            border: none;
+            border-radius: 5px;
+            box-shadow: 0 6px #999;
+            cursor: pointer;
+            -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+        }
+
+        .button:hover {
+            background-color: #1f2e45
+        }
+
+        .button:active {
+            background-color: #1f2e45;
+            box-shadow: 0 4px #666;
+            transform: translateY(2px);
+        }
+
+        .input1 {
+            margin-bottom: 30px;
+            padding: 6px 12px;
+            font-size: 16px;
+            font-weight: 700;
+            line-height: 1.5;
+            color: #212529;
+            background-color: #fff;
+            background-clip: padding-box;
+            border: 1px solid #ced4da;
+            appearance: none;
+            border-radius: 4px;
+            transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+        }
+
+        .label1 {
+            font-size: 28px;
+        }
+
+        .custom_margin {
+            padding-bottom: 30px;
+
+        }
+
+        @media screen and (max-width: 480px) {
+            .button {
+                padding: 15px 100px 15px 10px;
+                font-size: 10px;
+            }
+
+            h1 {
+                font-size: 24px;
+                padding-top: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <h1>ESP освіжувач повітря</h1>
+    <div>
+        <label for="delay" class="label1">Температура - <label id="temperatureValue"></label></label>
+
+    </div>
+    <div class="custom_margin"></div>
+    <div>
+        <label for="delay" class="label1">Вологість - <label id="humidityValue"></label></label>
+
+    </div>
+    <div class="custom_margin"></div>
+    <div>
+        <button class="button" id="wifiButton" onclick="sendDataAccess();">
+            Чи надсилати дані по WiFi - <span id="wifiStatus">так</span>
+        </button>
+    </div>
+    <div>
+        <button class="button" id="rgbButton" onclick="sendRgbStatus();">
+            Чи ввімкнути підсвітку - <span id="rgbStatus">так</span>
+        </button>
+    </div>
+    <div>
+        <label for="delay" class="label1">Затримка між перевіркою температури (в секундах), поточне - <label
+                id="tempCheck"></label>: </label>
+        <input type="number" class="input1" id="temperature" oninput="validateIntegerInput(this)" min="1" max="120">
+        <button class="button" onclick="sendTemperatureData()">Надіслати</button>
+    </div>
+    <div>
+        <label for="delay" class="label1">Час роботи зволожувача повітря (в секундах), поточне - <label
+                id="humidCheck"></label>: </label>
+        <input type="number" class="input1" id="humidifierWorking" oninput="validateIntegerInput(this)" min="1"
+            max="120">
+        <button class="button" onclick="sendHumidifierWorkingTime()">Надіслати</button>
+    </div>
+    <div>
+        <label for="delay" class="label1">Час затримки між зволоженнями (в секундах), поточне - <label
+                id="delayHumid"></label>: </label>
+        <input type="number" class="input1" id="humidifierSleeping" oninput="validateIntegerInput(this)" min="1"
+            max="120">
+        <button class="button" onclick="sendHumidifierSleepingTime()">Надіслати</button>
+    </div>
+
+    <div>
+        <label for="levelHumidity" class="label1">Рівень вологості, нижче якого розпочнеться зволоження, поточне -
+            <label id="humidLevel"></label>: </label>
+        <input type="number" class="input1" id="humidity" oninput="validateIntegerInput(this)" min="1" max="100">
+        <button class="button" onclick="sendHumidityData()">Надіслати</button>
+    </div>
+
+    <script>
+        var temperature = document.getElementById('temperature');
+        var humidity = document.getElementById('humidity');
+        var humidifierWorkingTime = document.getElementById('humidifierWorking');
+        var humidifierSleepingTime = document.getElementById('humidifierSleeping');
+
+
+        function validateIntegerInput(input) {
+            input.value = input.value.replace(/[^0-9]/g, '');
+        }
+
+        function sendDataAccess() {
+            var wifiStatus = document.getElementById('wifiStatus');
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "/", true);
+            xhr.send();
+            if (wifiStatus.textContent === 'так') {
+                xhr.open("GET", "/wifi_false", true);
+                xhr.send();
+                wifiStatus.textContent = 'ні';
+            } else {
+                xhr.open("GET", "/wifi_true", true);
+                xhr.send();
+                wifiStatus.textContent = 'так';
+            }
+        }
+        function sendRgbStatus() {
+            var rgbStatus = document.getElementById('rgbStatus');
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "/", true);
+            xhr.send();
+            if (rgbStatus.textContent === 'так') {
+                xhr.open("GET", "/rgb_false", true);
+                xhr.send();
+                rgbStatus.textContent = 'ні';
+            } else {
+                xhr.open("GET", "/rgb_true", true);
+                xhr.send();
+                rgbStatus.textContent = 'так';
+            }
+        }
+
+        function sendHumidifierWorkingTime() {
+            var humWorking = humidifierWorkingTime.value;
+            if (humWorking >= 1 && humWorking <= 120) {
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", "/set_humidifier_working_time?value=" + humWorking, true);
+                xhr.send();
+            } else {
+                alert("Вкажіть затримку між переваркою в межах від 1 до 120");
+            }
+        }
+
+        function sendHumidifierSleepingTime() {
+            var humSleeping = humidifierSleepingTime.value;
+            if (humSleeping >= 1 && humSleeping <= 120) {
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", "/set_humidifier_sleeping_time?value=" + humSleeping, true);
+                xhr.send();
+            } else {
+                alert("Вкажіть затримку між переваркою в межах від 1 до 120");
+            }
+        }
+
+        function sendTemperatureData() {
+            var tempValue = temperature.value;
+            if (tempValue >= 1 && tempValue <= 120) {
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", "/set_temperature?value=" + tempValue, true);
+                xhr.send();
+            } else {
+                alert("Вкажіть затримку між переваркою в межах від 1 до 120");
+            }
+        }
+
+        function sendHumidityData() {
+            var humidityValue = humidity.value;
+            if (humidityValue >= 1 && humidityValue <= 100) {
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", "/set_humidity?value=" + humidityValue, true);
+                xhr.send();
+            } else {
+                alert("Вкажіть рівень вологості в межах від 1 до 100");
+            }
+        }
+
+        function toggleTemperature() {
+            var xhr = new XMLHttpRequest();
+            var temp = document.getElementById("temperatureValue");
+            xhr.open("GET", "/checkTemperature", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    var valueT = xhr.responseText;
+                    temp.innerText = valueT;
+                }
+            };
+            xhr.send();
+        }
+
+        function toggleHumidifier() {
+            var xhr = new XMLHttpRequest();
+            var humid = document.getElementById("humidityValue");
+            xhr.open("GET", "/checkHumidity", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    var valueH = xhr.responseText
+                    humid.innerText = valueH;
+                }
+            };
+            xhr.send();
+        }
+
+        function tempCheck() {
+            var xhr = new XMLHttpRequest();
+            var tempCheck = document.getElementById("tempCheck");
+            xhr.open("GET", "/tempDelayCheck", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    var valueT2 = parseInt(xhr.responseText, 10) / 1000;
+                    tempCheck.innerText = valueT2;
+                }
+                else {
+                    tempCheck.innerText = 5;
+                }
+            };
+            xhr.send();
+        }
+
+        function humidCheck() {
+            var xhr = new XMLHttpRequest();
+            var humidCheck = document.getElementById("humidCheck");
+            xhr.open("GET", "/humidTimeCheck", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    var valueH = parseInt(xhr.responseText, 10) / 1000;
+                    humidCheck.innerText = valueH;
+                }
+                else { humidCheck.innerText = 20; }
+            };
+            xhr.send();
+        }
+
+        function delayHumid() {
+            var xhr = new XMLHttpRequest();
+            var delayHumid = document.getElementById("delayHumid");
+            xhr.open("GET", "/humidDelayCheck", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    var valueHD = parseInt(xhr.responseText, 10) / 1000;
+                    delayHumid.innerText = valueHD;
+                } else {
+                    delayHumid.innerText = 10;
+                }
+            };
+            xhr.send();
+        }
+
+        function humidLevel() {
+            var xhr = new XMLHttpRequest();
+            var humidLevel = document.getElementById("humidLevel");
+            xhr.open("GET", "humidityLevel", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    var valueHL = parseInt(xhr.responseText, 10);
+                    humidLevel.innerText = valueHL;
+                } else {
+                    humidLevel.innerText = 10;
+                }
+            };
+            xhr.send();
+        }
+
+        setInterval(toggleTemperature, 1000);
+        setInterval(toggleHumidifier, 1000);
+        setInterval(tempCheck, 1000);
+        setInterval(humidCheck, 1000);
+        setInterval(delayHumid, 1000);
+        setInterval(humidLevel, 1000);
+    </script>
+</body>
+
+</html>
+)rawliteral";
+
+void notFound(AsyncWebServerRequest *request) {
+  request->send(404, "text/plain", "Not found");
+}
+
+void initSite() {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send_P(200, "text/html", index_html);
+  });
+
+  server.on("/wifi_true", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("Send data by wifi - true");
+    allowToSendData = true;
+    request->send(200, "text/plain", "ok");
+  });
+
+  server.on("/wifi_false", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("Send data by wifi - false");
+    allowToSendData = false;
+    request->send(200, "text/plain", "ok");
+  });
+
+  server.on("/set_temperature", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("value")) {
+      String value = request->getParam("value")->value();
+      DHT22Delay = value.toInt() * 1000;
+      Serial.print("Temperature value received: ");
+      Serial.println(DHT22Delay);
+    }
+    request->send(200, "text/plain", "ok");
+  });
+  server.on("/set_humidity", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("value")) {
+      String value = request->getParam("value")->value();
+      humidityAcceptableLevel = value.toInt();
+      Serial.print("Humidity value received: ");
+      Serial.println(humidityAcceptableLevel);
+    }
+    request->send(200, "text/plain", "ok");
+  });
+
+  server.on("/set_humidifier_working_time", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("value")) {
+      String value = request->getParam("value")->value();
+      humidifierWorkingTime = value.toInt() * 1000;
+      Serial.print("Humidifier working time received: ");
+      Serial.println(humidifierWorkingTime);
+    }
+    request->send(200, "text/plain", "ok");
+  });
+
+  server.on("/set_humidifier_sleeping_time", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("value")) {
+      String value = request->getParam("value")->value();
+      humidifierSleepingTime = value.toInt() * 1000;
+      Serial.print("Humidifier sleeping time received: ");
+      Serial.println(humidifierSleepingTime);
+    }
+    request->send(200, "text/plain", "ok");
+  });
+
+  server.on("/rgb_true", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("RGB lighting - true");
+    RGBWorking = true;
+    request->send(200, "text/plain", "ok");
+  });
+
+  server.on("/rgb_false", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("RGB lighting - false");
+    RGBWorking = false;
+    request->send(200, "text/plain", "ok");
+  });
+
+  server.on("/checkTemperature", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String temperatureString = String(temperature, 1);
+    request->send(200, "text/plain", temperatureString);
+  });
+
+  server.on("/checkHumidity", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String humidityString = String(humidity, 1);
+    request->send(200, "text/plain", humidityString);
+  });
+
+  server.on("/tempDelayCheck", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String tempDelayString = String(DHT22Delay);
+    request->send(200, "text/plain", tempDelayString);
+  });
+
+  server.on("/humidTimeCheck", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String humidTimeString = String(humidifierWorkingTime);
+    request->send(200, "text/plain", humidTimeString);
+  });
+
+  server.on("/humidDelayCheck", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String humidDelayString = String(humidifierSleepingTime);
+    request->send(200, "text/plain", humidDelayString);
+  });
+
+  server.on("/humidityLevel", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String humidityLevelString = String(humidityAcceptableLevel);
+    request->send(200, "text/plain", humidityLevelString);
+  });
+
+  server.onNotFound(notFound);
+  server.begin();
+}
