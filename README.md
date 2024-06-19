@@ -1,0 +1,1 @@
+# curse_work_2024_v2
