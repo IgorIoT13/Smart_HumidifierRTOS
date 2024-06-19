@@ -1,1 +1,1 @@
-# curse_work_2024_v2
+# curse work Dubyk Yura 2024, second version.
