@@ -137,23 +137,26 @@ void checkTemperature() {
 }
 
 void sendData() {
+
   if (WiFi.status() == WL_CONNECTED) {
-    if (!isnan(temperature) && !isnan(humidity)) {
-      ThingSpeak.setField(1, temperature);
-      ThingSpeak.setField(2, humidity);
-      int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
-      if (x == 200) {
-        Serial.println("Channel update successful.");
-        if (firstSuccessRequest) {
-          Serial.print("ESP IP Address: http://");
-          IPAddress IP = WiFi.localIP();
-          Serial.println(IP);
-          initSite();
-          firstSuccessRequest = false;
+    if (allowToSendData) {
+      if (!isnan(temperature) && !isnan(humidity)) {
+        ThingSpeak.setField(1, temperature);
+        ThingSpeak.setField(2, humidity);
+        int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+        if (x == 200) {
+          Serial.println("Channel update successful.");
+          if (firstSuccessRequest) {
+            Serial.print("ESP IP Address: http://");
+            IPAddress IP = WiFi.localIP();
+            Serial.println(IP);
+            initSite();
+            firstSuccessRequest = false;
+          }
         }
+      } else {
+        Serial.println("Error in sending data, can`t read values from sensor");
       }
-    } else {
-      Serial.println("Error in sending data, can`t read values from sensor");
     }
   } else {
     connectWiFi();
