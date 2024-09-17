@@ -1,7 +1,14 @@
 #include <Arduino.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/timers.h"
+#include "freertos/event_groups.h"
+
 #define NOWT millis()
 #define READ(PIN_CHECK) digitalRead(PIN_CHECK)
 #define WRITE(PIN_CHECK, MODS) digitalWrite(PIN_CHECK, MODS)
+
 
 
 class Humidiffer{
@@ -11,9 +18,8 @@ class Humidiffer{
 
     uint32_t currTime = 0;
     uint32_t workTime;
-
-    uint32_t currAuto = 0;
-    uint32_t period = 1000;
+    //Task delay
+    uint16_t timeDelay;
 
   public:
     Humidiffer(uint8_t pin, uint32_t workTime){
@@ -24,6 +30,9 @@ class Humidiffer{
 
     void setupHumidiffer(){
       pinMode(pinOut, OUTPUT);
+    }
+    void setDelay(uint8_t time){
+        this->timeDelay = time;
     }
 
     void sleepUpdate(){
@@ -48,12 +57,6 @@ class Humidiffer{
       this->humidifferFlag = false;
     }
 
-    void autoUpdate(void(*funct)()){
-      if(NOWT - currAuto > period){
-        funct();
-      }
-    }
-
     void humidifferLoop(){
       if(humidifferFlag){
         if(NOWT - currTime > workTime){
@@ -66,4 +69,3 @@ class Humidiffer{
       }
     }
 };
-

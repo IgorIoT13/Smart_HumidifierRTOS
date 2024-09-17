@@ -8,7 +8,9 @@
 uint32_t DHT22TimeStamp;
 uint32_t DHT22Delay = 5000;
 
-bool needSomeDo = false;
+
+
+DHT dht(DHT22PIN, DHTTYPE);
 
 class SensorHT{
   private:
@@ -30,15 +32,13 @@ class SensorHT{
     }
 
     void setupSensor(){
-      DHT22TimeStamp = millis();
-      dht.begin();
-      humidifierTimeStamp = millis();
+      this->dht->begin();
       checkTemperature();
     } 
-    
+
     void checkTemperature() {
-      temperature = dht.readTemperature();
-      humidity = dht.readHumidity();
+      temperature = dht->readTemperature();
+      humidity = dht->readHumidity();
     }
 
     void Check(){
@@ -54,17 +54,6 @@ class SensorHT{
         this->dht = dht;
       }
     }
-}
-
-
-
-
-
-
-DHT dht(DHT22PIN, DHTTYPE);
-
-
-
-
+};
 
 #endif // dht_hum_h
