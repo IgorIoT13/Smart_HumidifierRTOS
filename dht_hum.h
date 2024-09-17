@@ -8,7 +8,7 @@
 uint32_t DHT22TimeStamp;
 uint32_t DHT22Delay = 5000;
 
-
+bool needSomeDo = false;
 
 class SensorHT{
   private:
@@ -35,12 +35,19 @@ class SensorHT{
       humidifierTimeStamp = millis();
       checkTemperature();
     } 
+    
     void checkTemperature() {
       temperature = dht.readTemperature();
       humidity = dht.readHumidity();
     }
 
-    void 
+    void Check(){
+      if(humidity < humidityAcceptableLevel){
+        needSomeDo = true;
+      }else{
+        needSomeDo = false;
+      }
+    }
 
     void setDHT(DHT* dht){
       if(dht){

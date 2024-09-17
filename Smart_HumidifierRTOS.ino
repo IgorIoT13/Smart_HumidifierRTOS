@@ -39,7 +39,7 @@ void loop() {
 
   hum->autoUpdate(checkTemperature);
   
-  if (humidity < humidityAcceptableLevel) {
+  if () {
     if(!hum->getFlagStatus()){
       StatusH = true;
     }
