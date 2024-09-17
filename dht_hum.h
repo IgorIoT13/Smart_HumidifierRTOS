@@ -9,44 +9,55 @@ uint32_t DHT22TimeStamp;
 uint32_t DHT22Delay = 5000;
 
 
-uint32_t humidifierTimeStamp;
-uint32_t humidifierWorkingTime = 20000;
-uint32_t humidifierSleepingTime = 10000;
-uint32_t humidifierSleepTimeStamp;
-float humidityAcceptableLevel = 50;
 
-bool humidifierWorking = false;
-bool humidifierStarting;
-bool allowToSendData = true;
-bool firstSuccessRequest = true; //todo remove
-bool oneTimeTriggerFlag = true;
-bool timeForHumidifierLeft = false;
-bool RGBWorking = true;
+class SensorHT{
+  private:
+    DHT* dht;
+    float temperature;
+    float humidity;
+    float humidityAcceptableLevel = 50;
+    bool LetsWork = false;
+
+  public:
+    SensorHT(){
+      dht = nullptr;
+    }
+
+    SensorHT(DHT* dht){
+      if(dht){
+        this->dht = dht;
+      }
+    }
+
+    void setupSensor(){
+      DHT22TimeStamp = millis();
+      dht.begin();
+      humidifierTimeStamp = millis();
+      checkTemperature();
+    } 
+    void checkTemperature() {
+      temperature = dht.readTemperature();
+      humidity = dht.readHumidity();
+    }
+
+    void 
+
+    void setDHT(DHT* dht){
+      if(dht){
+        this->dht = dht;
+      }
+    }
+}
+
+
+
+
+
 
 DHT dht(DHT22PIN, DHTTYPE);
 
-float temperature;
-float humidity;
 
-void checkTemperature() {
-  temperature = dht.readTemperature();
-#ifdef DHT_DEBUG
-  Serial.print("Temperature (ºC): ");
-  Serial.println(temperature);
-#endif
-  humidity = dht.readHumidity();
-#ifdef DHT_DEBUG
-  Serial.print("Humidity (%): ");
-  Serial.println(humidity);
-#endif
-}
 
-void setupDHT()
-{
-    DHT22TimeStamp = millis();
-  dht.begin();
-  humidifierTimeStamp = millis();
-  checkTemperature();
-}
+
 
 #endif // dht_hum_h
